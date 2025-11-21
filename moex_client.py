@@ -55,7 +55,6 @@ class MoexClient:
             data, cols = block.get("data", []), block.get("columns", [])
             if not data:
                 break
-
             df = pd.DataFrame(data, columns=cols)
             if "end" in df:
                 df["TRADEDATE"] = pd.to_datetime(df["end"])
@@ -66,7 +65,12 @@ class MoexClient:
             if "CLOSE" not in df:
                 break
 
-            all_dfs.append(df[["TRADEDATE", "CLOSE"]])
+            volume_col = "VOLUME" if "VOLUME" in df else None
+            if volume_col:
+                all_dfs.append(df[["TRADEDATE", "CLOSE", volume_col]])
+            else:
+                all_dfs.append(df[["TRADEDATE", "CLOSE"]])
+
             if len(df) < limit:
                 break
             start_index += limit
@@ -79,8 +83,11 @@ class MoexClient:
         df.sort_values("TRADEDATE", inplace=True)
         df.reset_index(drop=True, inplace=True)
         df.rename(columns={"TRADEDATE": "TIMESTAMP", "CLOSE": "PRICE"}, inplace=True)
+        if "volume" in df:
+            df.rename(columns={"volume": "VOLUME"}, inplace=True)
         print(f"Fetch {len(df)} lines {self.ticker} ({interval}): {start} -> {end}")
         return df
+
 
     def get_data(self) -> Dict:
         endpoint = f"engines/{self.engine}/markets/{self.market}/securities/{self.ticker}.json"
@@ -93,6 +100,7 @@ class MoexClient:
 
         df = pd.DataFrame(data, columns=cols)
         price = None
+        volume = None
         for field in ["LCURRENTPRICE", "LAST", "MARKETPRICE", "LASTPRICE", "CLOSEPRICE"]:
             if field in df and pd.notna(df[field].iloc[0]):
                 price = df[field].iloc[0]
@@ -100,13 +108,20 @@ class MoexClient:
         else:
             price = float("nan")
 
+        if "VOLUME" in df:
+            volume = df["VOLUME"].iloc[0]
+        else:
+            volume = float("nan")
+
         time = df["SYSTIME"].iloc[0] if "SYSTIME" in df else datetime.now().isoformat()
 
         return {
             "ticker": self.ticker,
             "price": price,
+            "volume": volume,
             "time": time
-        }
+    }
+
 
     def get_securities_list(self, market: str = "shares") -> pd.DataFrame:
         endpoint = f"engines/{self.engine}/markets/{market}/securities.json"
@@ -114,3 +129,23 @@ class MoexClient:
         data = j.get("securities", {}).get("data", [])
         cols = j.get("securities", {}).get("columns", [])
         return pd.DataFrame(data, columns=cols)
+
+    def plot(self, history: pd.DataFrame):
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 8), dpi=500, gridspec_kw={'height_ratios': [3, 1]}, sharex=True)
+        ax1.plot(history.index, history['PRICE'], color='black', linewidth=1.5, label='Цена')
+        ax1.set_ylabel('Цена', fontsize=12)
+        ax1.grid(True, alpha=0.3)
+        ax1.legend()
+
+        ax2.bar(history.index, history['VOLUME'], color='blue', alpha=0.7, label='Объем')
+        ax2.set_ylabel('Объем', fontsize=12)
+        ax2.grid(True, alpha=0.3)
+        ax2.legend()
+
+        ax2.set_xlabel('Дата/Время', fontsize=12)
+        fig.suptitle('Цена и объем', fontsize=16)
+
+        plt.tight_layout()
+        plt.show()
+
+
