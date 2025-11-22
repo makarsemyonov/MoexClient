@@ -141,6 +141,34 @@ class MoexClient:
         df["CUMRET"] = (1 + df["RET"]).cumprod()
         return df
 
+    def history_stats(self, history: pd.DataFrame, risk_free_rate: float = 0.0) -> dict:
+        if "RET" not in history:
+            raise ValueError("DataFrame must contain 'RET' column. Use process_history first.")
+        
+        rets = history["RET"].dropna()
+        vol = rets.std()
+        mean_ret = rets.mean()
+        sharpe = (mean_ret - risk_free_rate) / vol if vol != 0 else np.nan
+        neg_vol = rets[rets < 0].std()
+        sortino = (mean_ret - risk_free_rate) / neg_vol if neg_vol != 0 else np.nan
+        cumret = (1 + rets).prod() - 1
+        cum_returns = (1 + rets).cumprod()
+        peak = cum_returns.cummax()
+        drawdown = (cum_returns - peak) / peak
+        max_dd = drawdown.min()
+        skew = rets.skew()
+        kurt = rets.kurtosis()
+        return {
+            "mean_ret": mean_ret,
+            "volatility": vol,
+            "sharpe": sharpe,
+            "sortino": sortino,
+            "cumulative_return": cumret,
+            "max_drawdown": max_dd,
+            "skew": skew,
+            "kurtosis": kurt
+        }
+
     def plot(self, history: pd.DataFrame):
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 8), gridspec_kw={'height_ratios': [3, 1]}, sharex=True)
         ax1.plot(history.index, history['PRICE'], color='black', linewidth=1.5, label='Цена')
