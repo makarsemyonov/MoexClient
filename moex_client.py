@@ -1,5 +1,6 @@
 import requests
 import pandas as pd
+import numpy as np
 from datetime import datetime
 import matplotlib.pyplot as plt
 from typing import Dict, Optional
@@ -84,8 +85,7 @@ class MoexClient:
         df.sort_values("TRADEDATE", inplace=True)
         df.reset_index(drop=True, inplace=True)
         df.rename(columns={"TRADEDATE": "TIMESTAMP", "CLOSE": "PRICE"}, inplace=True)
-        if "volume" in df:
-            df.rename(columns={"volume": "VOLUME"}, inplace=True)
+        df.rename(columns={"volume": "VOLUME"}, inplace=True)
         print(f"Fetch {len(df)} lines {self.ticker} ({interval}): {start} -> {end}")
         return df
 
@@ -130,6 +130,15 @@ class MoexClient:
         data = j.get("securities", {}).get("data", [])
         cols = j.get("securities", {}).get("columns", [])
         return pd.DataFrame(data, columns=cols)
+
+    def process(self, history: pd.DataFrame) -> pd.DataFrame:
+        if "PRICE" not in history:
+            raise ValueError("DataFrame does not contain certain columns")
+
+        df = history.copy()
+        df["LOGRET"] = np.log(df["PRICE"] / df["PRICE"].shift(1))
+        df["RET"] = df["PRICE"].pct_change()
+        return df
 
     def plot(self, history: pd.DataFrame):
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 8), dpi=500, gridspec_kw={'height_ratios': [3, 1]}, sharex=True)
