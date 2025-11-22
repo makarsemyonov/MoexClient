@@ -1,7 +1,8 @@
 import requests
 import pandas as pd
 from datetime import datetime
-from typing import Dict, List, Optional
+import matplotlib.pyplot as plt
+from typing import Dict, Optional
 
 
 class MoexClient:
