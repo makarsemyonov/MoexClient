@@ -131,17 +131,18 @@ class MoexClient:
         cols = j.get("securities", {}).get("columns", [])
         return pd.DataFrame(data, columns=cols)
 
-    def process(self, history: pd.DataFrame) -> pd.DataFrame:
+    def process_history(self, history: pd.DataFrame) -> pd.DataFrame:
         if "PRICE" not in history:
             raise ValueError("DataFrame does not contain certain columns")
 
         df = history.copy()
         df["LOGRET"] = np.log(df["PRICE"] / df["PRICE"].shift(1))
         df["RET"] = df["PRICE"].pct_change()
+        df["CUMRET"] = (1 + df["RET"]).cumprod()
         return df
 
     def plot(self, history: pd.DataFrame):
-        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 8), dpi=500, gridspec_kw={'height_ratios': [3, 1]}, sharex=True)
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 8), gridspec_kw={'height_ratios': [3, 1]}, sharex=True)
         ax1.plot(history.index, history['PRICE'], color='black', linewidth=1.5, label='Цена')
         ax1.set_ylabel('Цена', fontsize=12)
         ax1.grid(True, alpha=0.3)

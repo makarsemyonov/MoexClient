@@ -50,7 +50,7 @@
 
 ---
 
-### `process(history: pd.DataFrame) -> pd.DataFrame`
+### `process_history(history: pd.DataFrame) -> pd.DataFrame`
 
 Обработать исторические данные. 
 
@@ -60,6 +60,7 @@
 - `VOLUME` — объем
 - `RET` — доходности
 - `LOGRET` — логдоходности
+- `CUMRET` — кумулятивные доходности
 
 ---
 
