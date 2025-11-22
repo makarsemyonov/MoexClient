@@ -1,6 +1,6 @@
 import requests
-import pandas as pd
 import numpy as np
+import pandas as pd
 from datetime import datetime
 import matplotlib.pyplot as plt
 from typing import Dict, Optional
@@ -186,5 +186,3 @@ class MoexClient:
 
         plt.tight_layout()
         plt.show()
-
-
