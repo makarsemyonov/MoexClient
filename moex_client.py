@@ -136,6 +136,3 @@ class MoexClient:
 
         plt.tight_layout()
         plt.show()
-
-MC = MoexClient("SBER")
-print(MC.get_securities_list("repo"))
