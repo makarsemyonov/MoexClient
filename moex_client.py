@@ -30,6 +30,32 @@ class MoexClient:
             return data
         except requests.exceptions.RequestException as e:
             raise RuntimeError(f"Error during MOEX request {url}: {e}") from e
+        
+    def get_markets(self, engine: str = None) -> pd.DataFrame:
+        engine = engine or self.engine
+        endpoint = f"engines/{engine}/markets.json"
+        j = self._get(endpoint)
+        data = j.get("markets", {}).get("data", [])
+        cols = j.get("markets", {}).get("columns", [])
+        if not data:
+            raise ValueError(f"No markets found for engine {engine}")
+        return pd.DataFrame(data, columns=cols)
+
+    def get_engines(self) -> pd.DataFrame:
+        endpoint = "engines.json"
+        j = self._get(endpoint)
+        data = j.get("engines", {}).get("data", [])
+        cols = j.get("engines", {}).get("columns", [])
+        if not data:
+            raise ValueError("No engines found on MOEX")
+        return pd.DataFrame(data, columns=cols)
+
+    def get_securities(self, market: str = "shares") -> pd.DataFrame:
+        endpoint = f"engines/{self.engine}/markets/{market}/securities.json"
+        j = self._get(endpoint)
+        data = j.get("securities", {}).get("data", [])
+        cols = j.get("securities", {}).get("columns", [])
+        return pd.DataFrame(data, columns=cols)
 
     def get_history(self, start: str, end: str, interval: str = "1d") -> pd.DataFrame:
         intervals = {"1m": 1, "10m": 10, "1h": 60, "1d": 1440}
@@ -92,13 +118,6 @@ class MoexClient:
         df["CUMRET"] = (1 + df["RET"]).cumprod()
         print(f"Fetch {len(df)} lines {self.ticker} ({interval}): {start} -> {end}")
         return df
-
-    def get_securities_list(self, market: str = "shares") -> pd.DataFrame:
-        endpoint = f"engines/{self.engine}/markets/{market}/securities.json"
-        j = self._get(endpoint)
-        data = j.get("securities", {}).get("data", [])
-        cols = j.get("securities", {}).get("columns", [])
-        return pd.DataFrame(data, columns=cols)
     
     def plot(self, history: pd.DataFrame):
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 8), gridspec_kw={'height_ratios': [3, 1]}, sharex=True)
@@ -117,3 +136,6 @@ class MoexClient:
 
         plt.tight_layout()
         plt.show()
+
+MC = MoexClient("SBER")
+print(MC.get_securities_list("repo"))
