@@ -93,44 +93,6 @@ class MoexClient:
         print(f"Fetch {len(df)} lines {self.ticker} ({interval}): {start} -> {end}")
         return df
 
-
-    def get_data(self) -> Dict:
-        endpoint = f"engines/{self.engine}/markets/{self.market}/securities/{self.ticker}.json"
-
-        j = self._get(endpoint)
-        data = j.get("marketdata", {}).get("data", [])
-        cols = j.get("marketdata", {}).get("columns", [])
-
-        if not data:
-            raise ValueError(f"No marketdata for {self.ticker}")
-
-        df = pd.DataFrame(data, columns=cols)
-
-        price = None
-        for field in ["LCURRENTPRICE", "LAST", "MARKETPRICE", "LASTPRICE", "CLOSEPRICE"]:
-            if field in df and pd.notna(df[field].iloc[0]):
-                price = float(df[field].iloc[0])
-                break
-
-        if price is None or not np.isfinite(price) or price <= 0:
-            raise ValueError(f"Invalid price for {self.ticker}: {price}")
-
-        if "VOLUME" in df and pd.notna(df["VOLUME"].iloc[0]) and float(df["VOLUME"].iloc[0]) > 0:
-            volume = float(df["VOLUME"].iloc[0])
-        else:
-            raise ValueError(f"Invalid volume for {self.ticker}: {df.get('VOLUME')}")
-
-        if "SYSTIME" in df and pd.notna(df["SYSTIME"].iloc[0]):
-            ts = pd.to_datetime(df["SYSTIME"].iloc[0])
-        else:
-            ts = pd.Timestamp.now()
-
-        return {
-            "price": float(price),
-            "volume": float(volume),
-            "time": ts
-        }
-
     def get_securities_list(self, market: str = "shares") -> pd.DataFrame:
         endpoint = f"engines/{self.engine}/markets/{market}/securities.json"
         j = self._get(endpoint)
