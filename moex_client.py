@@ -1,7 +1,6 @@
 import requests
 import numpy as np
 import pandas as pd
-from datetime import datetime
 import matplotlib.pyplot as plt
 from typing import Dict, Optional
 
@@ -22,25 +21,27 @@ class MoexClient:
 
     def _get(self, endpoint: str, params: Optional[Dict] = None) -> Dict:
         url = f"{self.BASE_URL}/{endpoint}"
-        resp = requests.get(url, params=params)
-        resp.raise_for_status()
-        return resp.json()
-
-    @staticmethod
-    def _interval_to_code(interval: str) -> int:
-        mapping = {"1m": 1, "10m": 10, "1h": 60}
-        return mapping.get(interval, 24 * 60)
+        try:
+            resp = requests.get(url, params=params, timeout=5)
+            resp.raise_for_status()
+            data = resp.json()
+            if not data:
+                raise RuntimeError(f"Empty response from MOEX API: {url}")
+            return data
+        except requests.exceptions.RequestException as e:
+            raise RuntimeError(f"Error during MOEX request {url}: {e}") from e
 
     def get_history(self, start: str, end: str, interval: str = "1d") -> pd.DataFrame:
-        if interval not in {"1d", "1h", "10m", "1m"}:
-            raise ValueError("interval must be: '1d', '1h', '10m', '1m'")
+        intervals = {"1m": 1, "10m": 10, "1h": 60, "1d": 1440}
+        if interval not in intervals:
+            raise ValueError(f"Invalid interval {interval}, choose from {list(intervals.keys())}")
 
         if interval == "1d":
             endpoint = f"history/engines/{self.engine}/markets/{self.market}/boards/{self.board}/securities/{self.ticker}.json"
             params = {"from": start, "till": end}
         else:
             endpoint = f"engines/{self.engine}/markets/{self.market}/securities/{self.ticker}/candles.json"
-            params = {"from": start, "till": end, "interval": self._interval_to_code(interval)}
+            params = {"from": start, "till": end, "interval": intervals[interval]}
 
         all_dfs = []
         start_index = 0
@@ -86,43 +87,49 @@ class MoexClient:
         df.reset_index(drop=True, inplace=True)
         df.rename(columns={"TRADEDATE": "TIMESTAMP", "CLOSE": "PRICE"}, inplace=True)
         df.rename(columns={"volume": "VOLUME"}, inplace=True)
+        df["LOGRET"] = np.log(df["PRICE"] / df["PRICE"].shift(1))
+        df["RET"] = df["PRICE"].pct_change()
+        df["CUMRET"] = (1 + df["RET"]).cumprod()
         print(f"Fetch {len(df)} lines {self.ticker} ({interval}): {start} -> {end}")
         return df
 
 
     def get_data(self) -> Dict:
         endpoint = f"engines/{self.engine}/markets/{self.market}/securities/{self.ticker}.json"
+
         j = self._get(endpoint)
         data = j.get("marketdata", {}).get("data", [])
         cols = j.get("marketdata", {}).get("columns", [])
 
         if not data:
-            raise ValueError(f"No data for {self.ticker}")
+            raise ValueError(f"No marketdata for {self.ticker}")
 
         df = pd.DataFrame(data, columns=cols)
+
         price = None
-        volume = None
         for field in ["LCURRENTPRICE", "LAST", "MARKETPRICE", "LASTPRICE", "CLOSEPRICE"]:
             if field in df and pd.notna(df[field].iloc[0]):
-                price = df[field].iloc[0]
+                price = float(df[field].iloc[0])
                 break
-        else:
-            price = float("nan")
 
-        if "VOLUME" in df:
-            volume = df["VOLUME"].iloc[0]
-        else:
-            volume = float("nan")
+        if price is None or not np.isfinite(price) or price <= 0:
+            raise ValueError(f"Invalid price for {self.ticker}: {price}")
 
-        time = df["SYSTIME"].iloc[0] if "SYSTIME" in df else datetime.now().isoformat()
+        if "VOLUME" in df and pd.notna(df["VOLUME"].iloc[0]) and float(df["VOLUME"].iloc[0]) > 0:
+            volume = float(df["VOLUME"].iloc[0])
+        else:
+            raise ValueError(f"Invalid volume for {self.ticker}: {df.get('VOLUME')}")
+
+        if "SYSTIME" in df and pd.notna(df["SYSTIME"].iloc[0]):
+            ts = pd.to_datetime(df["SYSTIME"].iloc[0])
+        else:
+            ts = pd.Timestamp.now()
 
         return {
-            "ticker": self.ticker,
-            "price": price,
-            "volume": volume,
-            "time": time
-    }
-
+            "price": float(price),
+            "volume": float(volume),
+            "time": ts
+        }
 
     def get_securities_list(self, market: str = "shares") -> pd.DataFrame:
         endpoint = f"engines/{self.engine}/markets/{market}/securities.json"
@@ -130,45 +137,7 @@ class MoexClient:
         data = j.get("securities", {}).get("data", [])
         cols = j.get("securities", {}).get("columns", [])
         return pd.DataFrame(data, columns=cols)
-
-    def process_history(self, history: pd.DataFrame) -> pd.DataFrame:
-        if "PRICE" not in history:
-            raise ValueError("DataFrame does not contain certain columns")
-
-        df = history.copy()
-        df["LOGRET"] = np.log(df["PRICE"] / df["PRICE"].shift(1))
-        df["RET"] = df["PRICE"].pct_change()
-        df["CUMRET"] = (1 + df["RET"]).cumprod()
-        return df
-
-    def history_stats(self, history: pd.DataFrame, risk_free_rate: float = 0.0) -> dict:
-        if "RET" not in history:
-            raise ValueError("DataFrame must contain 'RET' column. Use process_history first.")
-        
-        rets = history["RET"].dropna()
-        vol = rets.std()
-        mean_ret = rets.mean()
-        sharpe = (mean_ret - risk_free_rate) / vol if vol != 0 else np.nan
-        neg_vol = rets[rets < 0].std()
-        sortino = (mean_ret - risk_free_rate) / neg_vol if neg_vol != 0 else np.nan
-        cumret = (1 + rets).prod() - 1
-        cum_returns = (1 + rets).cumprod()
-        peak = cum_returns.cummax()
-        drawdown = (cum_returns - peak) / peak
-        max_dd = drawdown.min()
-        skew = rets.skew()
-        kurt = rets.kurtosis()
-        return {
-            "mean_ret": mean_ret,
-            "volatility": vol,
-            "sharpe": sharpe,
-            "sortino": sortino,
-            "cumulative_return": cumret,
-            "max_drawdown": max_dd,
-            "skew": skew,
-            "kurtosis": kurt
-        }
-
+    
     def plot(self, history: pd.DataFrame):
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 8), gridspec_kw={'height_ratios': [3, 1]}, sharex=True)
         ax1.plot(history.index, history['PRICE'], color='black', linewidth=1.5, label='Цена')
